@@ -170,7 +170,7 @@ const MASTER_HTML = `
   <div id="rooms"></div>
 </div>
 <script>
-  var KEY='kmotto';
+  var KEY='kiko-e127e902';
   async function call(fn,args){ const r=await fetch('/api',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({fn,args})}); return await r.json(); }
   window.onload=async function(){ paint(await call('mData',[KEY])); };
   async function addRoom(){ var v=document.getElementById('newname').value; if(!v.trim())return; var r=await call('mAdd',[KEY,v]); if(r&&r.ok){document.getElementById('newname').value='';paint(r);} }
