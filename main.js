@@ -78,6 +78,25 @@ async function sAdd(sid, k, rawId, limit) { if (!(await sAuth(sid, k))) return {
 async function sRemove(sid, k, rawId) { if (!(await sAuth(sid, k))) return { ok: false, roster: await getRoster(sid) }; const id = norm(rawId); const r = (await getRoster(sid)).filter((x) => norm(x.id) !== id); await setRoster(sid, r); return { ok: true, roster: r }; }
 async function sClearToday(sid, k) { if (!(await sAuth(sid, k))) return { ok: false }; await setLog(sid, { date: today(), counts: {} }); return { ok: true }; }
 async function sHistory(sid, k) { if (!(await sAuth(sid, k))) return { ok: false }; return { ok: true, history: await getHistory(sid) }; }
+async function sRename(sid, k, oldRaw, newRaw) {
+  if (!(await sAuth(sid, k))) return { ok: false, roster: await getRoster(sid) };
+  const oldId = norm(oldRaw), newId = norm(newRaw);
+  if (!newId) return { ok: false, roster: await getRoster(sid) };
+  const r = await getRoster(sid);
+  const idx = r.findIndex((x) => norm(x.id) === oldId);
+  if (idx < 0) return { ok: false, roster: r };
+  if (oldId !== newId && r.some((x) => norm(x.id) === newId)) return { ok: false, roster: r, msg: "そのIDは既に名簿にあります" };
+  r[idx].id = newId;
+  await setRoster(sid, r);
+  if (oldId !== newId) {
+    const log = await getLog(sid);
+    if (log.counts[oldId] != null) { log.counts[newId] = log.counts[oldId]; delete log.counts[oldId]; await setLog(sid, log); }
+    const h = await getHistory(sid); let changed = false;
+    for (const e of h) { if (e && norm(e.id) === oldId) { e.id = newId; changed = true; } }
+    if (changed) await kv.set(["room", sid, "history"], h);
+  }
+  return { ok: true, roster: r };
+}
 
 async function api(fn, args, origin) {
   const a = args || [];
@@ -94,6 +113,7 @@ async function api(fn, args, origin) {
     case "sRemove": return await sRemove(a[0], a[1], a[2]);
     case "sClearToday": return await sClearToday(a[0], a[1]);
     case "sHistory": return await sHistory(a[0], a[1]);
+    case "sRename": return await sRename(a[0], a[1], a[2], a[3]);
     default: return { ok: false };
   }
 }
@@ -354,11 +374,26 @@ const STREAMER_HTML = `
       lim.onchange=function(){ run('sSetLimit',[m.id,lim.value],function(r){ if(r&&r.ok)ROSTER=r.roster; }); };
       var unit=document.createElement('span'); unit.className='muted2'; unit.textContent='回/日';
       var use=document.createElement('span'); use.className='muted2'; use.textContent='今日'+used;
+      var edit=document.createElement('button'); edit.textContent='✏️'; edit.className='del'; edit.style.background='#475569';
+      edit.onclick=function(){ startEdit(li, m); };
       var del=document.createElement('button'); del.textContent='削除'; del.className='del';
       del.onclick=function(){ run('sRemove',[m.id],function(r){ if(r&&r.ok){ROSTER=r.roster;drawRoster();} }); };
-      li.appendChild(nm); li.appendChild(lim); li.appendChild(unit); li.appendChild(use); li.appendChild(del);
+      li.appendChild(nm); li.appendChild(lim); li.appendChild(unit); li.appendChild(use); li.appendChild(edit); li.appendChild(del);
       ul.appendChild(li);
     });
+  }
+  function startEdit(li, m){
+    li.innerHTML='';
+    var box=document.createElement('div'); box.className='idbox'; box.style.flex='1';
+    var at=document.createElement('span'); at.className='at'; at.textContent='@';
+    var inp=document.createElement('input'); inp.type='text'; inp.value=m.id;
+    box.appendChild(at); box.appendChild(inp);
+    var ok=document.createElement('button'); ok.textContent='保存'; ok.className='add';
+    ok.onclick=function(){ var nv=inp.value; if(!nv.trim())return; run('sRename',[m.id,nv],function(r){ if(r&&r.ok){ROSTER=r.roster;drawRoster();loadHistory();}else{alert((r&&r.msg)||'変更できませんでした');drawRoster();} }); };
+    var cancel=document.createElement('button'); cancel.textContent='✕'; cancel.className='del';
+    cancel.onclick=function(){ drawRoster(); };
+    li.appendChild(box); li.appendChild(ok); li.appendChild(cancel);
+    inp.focus();
   }
   function addM(){ var v=document.getElementById('newid').value; if(!v.trim())return; var lim=document.getElementById('newlim').value||1; run('sAdd',[v,lim],function(r){ if(r&&r.ok){document.getElementById('newid').value='';document.getElementById('newlim').value=1;ROSTER=r.roster;drawRoster();} }); }
   function clearT(){ run('sClearToday',[],function(r){ if(r&&r.ok){COUNTS={};drawUsed();drawRoster();} }); }
