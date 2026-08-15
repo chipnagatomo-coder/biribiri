@@ -112,6 +112,10 @@ const USER_HTML = `
   h1{font-size:22px;margin:0 0 24px}
   input{width:100%;box-sizing:border-box;padding:14px;font-size:16px;border:1px solid #333a47;border-radius:10px;margin-bottom:16px;text-align:center;background:#232936;color:#eef1f6}
   input::placeholder{color:#7f8899}
+  .idbox{display:flex;align-items:center;box-sizing:border-box;border:1px solid #333a47;border-radius:10px;margin-bottom:16px;background:#232936;overflow:hidden}
+  .idbox .at{color:#fff;font-weight:bold;font-size:16px;padding-left:16px}
+  .idbox input{border:none;margin:0;border-radius:0;text-align:left;padding-left:4px;background:transparent;flex:1;min-width:0}
+  .idbox input:focus{outline:none}
   button{width:100%;padding:16px;font-size:18px;font-weight:bold;border:none;border-radius:12px;color:#fff;cursor:pointer;background:linear-gradient(90deg,#2563eb,#3b82f6)}
   button:disabled{opacity:.5}
   .msg{margin-top:20px;font-size:16px;min-height:24px}
@@ -119,19 +123,19 @@ const USER_HTML = `
 </style></head><body>
   <div class="card">
     <h1>⚡ びりびりボタン</h1>
-    <input id="tid" type="text" placeholder="TikTok ID（@から）" autocomplete="off">
+    <div class="idbox"><span class="at">@</span><input id="tid" type="text" placeholder="TikTokのID" autocomplete="off"></div>
     <button id="btn" onclick="go()">びりびりさせる</button>
     <div id="msg" class="msg"></div>
   </div>
 <script>
   var SID='__SID__';
   async function call(fn,args){ try{ const r=await fetch('/api',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({fn,args})}); return await r.json(); }catch(e){ return {ok:false,msg:'通信エラー。もう一度お試しください'}; } }
-  window.onload=function(){ var el=document.getElementById('tid'); try{ var s=localStorage.getItem('biribiri_id'); if(s){ el.value=s; return; } }catch(e){} el.value='@'; };
+  window.onload=function(){ var el=document.getElementById('tid'); try{ var s=localStorage.getItem('biribiri_id'); if(s){ el.value=String(s).replace(/^@/,''); } }catch(e){} };
   async function go(){
-    var id=document.getElementById('tid').value,btn=document.getElementById('btn'),msg=document.getElementById('msg');
+    var id=document.getElementById('tid').value.trim().replace(/^@/,''),btn=document.getElementById('btn'),msg=document.getElementById('msg');
     if(!SID){msg.textContent='URLが正しくありません';msg.className='msg ng';return;}
-    if(!id.trim()){msg.textContent='IDを入力してください';msg.className='msg ng';return;}
-    try{ localStorage.setItem('biribiri_id', id.trim()); }catch(e){}
+    if(!id){msg.textContent='IDを入力してください';msg.className='msg ng';return;}
+    try{ localStorage.setItem('biribiri_id', id); }catch(e){}
     btn.disabled=true; msg.textContent='送信中...'; msg.className='msg';
     var r=await call('fire',[SID,id]);
     msg.textContent=r.msg; msg.className='msg '+(r.ok?'ok':'ng'); btn.disabled=false;
@@ -222,6 +226,10 @@ const STREAMER_HTML = `
   input::placeholder{color:var(--muted)}
   input[type=range]{padding:0;border:none;background:transparent;accent-color:#3b82f6;width:100%}
   .idin{flex:1}
+  .idbox{display:flex;align-items:center;border:1px solid var(--line);border-radius:9px;background:#2a3140;overflow:hidden}
+  .idbox .at{color:#fff;font-weight:bold;font-size:15px;padding-left:12px}
+  .idbox input{border:none;background:transparent;padding-left:4px;flex:1;min-width:0}
+  .idbox input:focus{outline:none}
   .limin{width:58px;text-align:center;flex:none}
   .strval{font-weight:800;color:#60a5fa}
   .add{padding:12px 16px;font-size:15px;font-weight:700;border:none;border-radius:9px;cursor:pointer;background:linear-gradient(90deg,#2563eb,#3b82f6);color:#fff;flex:none}
@@ -247,7 +255,7 @@ const STREAMER_HTML = `
   </div>
   <div class="card">
     <p class="sub">スパファン名簿（<span id="rc">0</span>人）／人ごとに1日の回数を設定</p>
-    <div class="row"><input id="newid" class="idin" type="text" placeholder="TikTok ID（@から）"><input id="newlim" class="limin" type="number" min="1" value="1"><button class="add" onclick="addM()">追加</button></div>
+    <div class="row"><div class="idbox idin"><span class="at">@</span><input id="newid" type="text" placeholder="TikTokのID"></div><input id="newlim" class="limin" type="number" min="1" value="1"><button class="add" onclick="addM()">追加</button></div>
     <ul id="list" class="list"></ul>
   </div>
   <div class="card">
