@@ -18,6 +18,15 @@ const getStrength = async (sid) => (await kv.get(["room", sid, "strength"])).val
 const getToken = async (sid) => (await kv.get(["room", sid, "token"])).value || "";
 const getLog = async (sid) => { const o = (await kv.get(["room", sid, "log"])).value || { date: "", counts: {} }; return o.date === today() ? o : { date: today(), counts: {} }; };
 const setLog = async (sid, v) => { await kv.set(["room", sid, "log"], v); };
+const getHistory = async (sid) => (await kv.get(["room", sid, "history"])).value || [];
+async function addHistory(sid, id) {
+  const now = Date.now();
+  const cutoff = now - 31 * 24 * 60 * 60 * 1000;
+  let h = (await getHistory(sid)).filter((e) => e && e.ts >= cutoff);
+  h.push({ id, ts: now });
+  if (h.length > 3000) h = h.slice(h.length - 3000);
+  await kv.set(["room", sid, "history"], h);
+}
 
 async function zap(sid) {
   const token = await getToken(sid), strength = await getStrength(sid);
@@ -44,6 +53,7 @@ async function fire(sid, rawId) {
   await zap(sid);
   log.counts[id] = used + 1;
   await setLog(sid, log);
+  await addHistory(sid, id);
   return { ok: true, msg: `びりびり発動！（今日 ${used + 1}/${limit}）` };
 }
 
@@ -67,6 +77,7 @@ async function sSetToken(sid, k, t) { if (!(await sAuth(sid, k))) return { ok: f
 async function sAdd(sid, k, rawId, limit) { if (!(await sAuth(sid, k))) return { ok: false, roster: await getRoster(sid) }; const id = norm(rawId); if (!id) return { ok: false, roster: await getRoster(sid) }; let lim = parseInt(limit, 10); if (!lim || lim < 1) lim = 1; const r = await getRoster(sid); const hit = r.find((x) => norm(x.id) === id); if (hit) hit.limit = lim; else r.push({ id, limit: lim }); await setRoster(sid, r); return { ok: true, roster: r }; }
 async function sRemove(sid, k, rawId) { if (!(await sAuth(sid, k))) return { ok: false, roster: await getRoster(sid) }; const id = norm(rawId); const r = (await getRoster(sid)).filter((x) => norm(x.id) !== id); await setRoster(sid, r); return { ok: true, roster: r }; }
 async function sClearToday(sid, k) { if (!(await sAuth(sid, k))) return { ok: false }; await setLog(sid, { date: today(), counts: {} }); return { ok: true }; }
+async function sHistory(sid, k) { if (!(await sAuth(sid, k))) return { ok: false }; return { ok: true, history: await getHistory(sid) }; }
 
 async function api(fn, args, origin) {
   const a = args || [];
@@ -82,6 +93,7 @@ async function api(fn, args, origin) {
     case "sAdd": case "sSetLimit": return await sAdd(a[0], a[1], a[2], a[3]);
     case "sRemove": return await sRemove(a[0], a[1], a[2]);
     case "sClearToday": return await sClearToday(a[0], a[1]);
+    case "sHistory": return await sHistory(a[0], a[1]);
     default: return { ok: false };
   }
 }
@@ -263,6 +275,14 @@ const STREAMER_HTML = `
     <button class="clear" onclick="clearT()">今日の記録をリセット</button>
   </div>
   <div class="card">
+    <p class="sub">履歴（過去1ヶ月・日本時間）<span id="hc" class="muted2"></span></p>
+    <div class="row" style="gap:8px;margin-bottom:10px">
+      <button class="add" style="flex:1" onclick="reloadAll()">🔄 最新に更新</button>
+      <button class="add" style="flex:1;background:#334155" onclick="dlCsv()">CSVで保存</button>
+    </div>
+    <ul id="hist" class="list" style="max-height:260px;overflow:auto"></ul>
+  </div>
+  <div class="card">
     <p class="sub">スマホで管理する（カメラでQRを読み取り）</p>
     <div id="qr" style="display:flex;justify-content:center;background:#fff;padding:12px;border-radius:10px"></div>
     <button class="add" style="width:100%;margin-top:12px" onclick="copyAdminUrl()">管理URLをコピー</button>
@@ -270,7 +290,7 @@ const STREAMER_HTML = `
   </div>
 </div>
 <script>
-  var SID='__SID__', K='__K__', STATE='OFF', ADMURL='', ROSTER=[], COUNTS={}, STRENGTH=50, HASTOKEN=false;
+  var SID='__SID__', K='__K__', STATE='OFF', ADMURL='', ROSTER=[], COUNTS={}, STRENGTH=50, HASTOKEN=false, HISTORY=[];
   async function call(fn,args){ try{ const r=await fetch('/api',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({fn,args})}); return await r.json(); }catch(e){ return {ok:false}; } }
   function run(fn,extra,cb){ call(fn,[SID,K].concat(extra||[])).then(function(r){ if(cb)cb(r); }); }
   function nrm(s){ return String(s||'').trim().replace(/^@/,'').toLowerCase(); }
@@ -279,7 +299,31 @@ const STREAMER_HTML = `
     s.oninput=function(){ document.getElementById('stv').textContent=this.value; };
     s.onchange=function(){ run('sSetStrength',[this.value],function(r){ if(r&&r.ok)STRENGTH=r.strength; }); };
     paint(await call('sData',[SID,K]));
+    loadHistory();
   };
+  async function loadHistory(){ var r=await call('sHistory',[SID,K]); if(r&&r.ok){ HISTORY=r.history||[]; drawHistory(); } }
+  function reloadAll(){ call('sData',[SID,K]).then(function(r){ paint(r); }); loadHistory(); }
+  function fmtTs(ts){ try{ return new Date(ts).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  function drawHistory(){
+    document.getElementById('hc').textContent='（'+HISTORY.length+'件）';
+    var ul=document.getElementById('hist'); ul.innerHTML='';
+    var arr=HISTORY.slice().reverse();
+    if(!arr.length){ ul.innerHTML='<li><span class="muted2">まだ記録はありません</span></li>'; return; }
+    arr.forEach(function(e){
+      var li=document.createElement('li');
+      var nm=document.createElement('span'); nm.className='nm'; nm.textContent='@'+e.id;
+      var tm=document.createElement('span'); tm.className='muted2'; tm.textContent=fmtTs(e.ts);
+      li.appendChild(nm); li.appendChild(tm); ul.appendChild(li);
+    });
+  }
+  function dlCsv(){
+    var rows=[['日時(JST)','TikTokID']];
+    HISTORY.slice().reverse().forEach(function(e){ rows.push([fmtTs(e.ts),'@'+e.id]); });
+    var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','); }).join('\\n');
+    var blob=new Blob(['\\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+    var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='biribiri_log.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){URL.revokeObjectURL(url);},1000);
+  }
   function paint(r){
     if(!r||!r.ok)return;
     STATE=r.state; ROSTER=r.roster||[]; COUNTS=r.counts||{}; STRENGTH=r.strength||50; HASTOKEN=!!r.hasToken;
