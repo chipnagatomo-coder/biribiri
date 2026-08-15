@@ -1,5 +1,5 @@
 // びりびりボタン（Pavlok発火）— Deno Deploy 版（Googleログイン不要）
-// 運営: /?admin=kmotto  配信者: /?s=部屋ID&k=秘密キー  リスナー: /?s=部屋ID
+// 運営: /?admin=（あなたの合言葉）  配信者: /?s=部屋ID&k=秘密キー  リスナー: /?s=部屋ID
 const kv = await Deno.openKv();
 const ADMIN_KEY = "kiko-e127e902";
 
@@ -63,7 +63,7 @@ async function mData(key, origin) {
   for (const r of rooms) out.push({ sid: r.sid, name: r.name, adminUrl: `${origin}/?s=${r.sid}&k=${r.akey}`, state: await getState(r.sid), hasToken: !!(await getToken(r.sid)) });
   return { ok: true, rooms: out };
 }
-async function mAdd(key, name, origin) { if (!ck(key)) return { ok: false }; const nm = String(name || "").trim(); if (nm) { const rooms = await getRooms(); rooms.push({ sid: rid(8), name: nm, akey: rid(10) }); await setRooms(rooms); } return await mData(key, origin); }
+async function mAdd(key, name, origin) { if (!ck(key)) return { ok: false }; const nm = String(name || "").trim().replace(/^@/, ""); if (nm) { const rooms = await getRooms(); rooms.push({ sid: rid(8), name: nm, akey: rid(10) }); await setRooms(rooms); } return await mData(key, origin); }
 async function mRemove(key, sid, origin) { if (!ck(key)) return { ok: false }; await setRooms((await getRooms()).filter((r) => r.sid !== sid)); for (const s of ["roster", "state", "token", "strength", "log"]) await kv.delete(["room", sid, s]); return await mData(key, origin); }
 
 const sAuth = async (sid, k) => sid && k && k === (await akeyOf(sid));
@@ -187,6 +187,10 @@ const MASTER_HTML = `
   .row{display:flex;gap:8px;align-items:center}
   input{padding:12px;font-size:15px;border:1px solid var(--line);border-radius:9px;box-sizing:border-box;background:#2a3140;color:#eef1f6;flex:1}
   input::placeholder{color:var(--muted)}
+  .idbox{display:flex;align-items:center;border:1px solid var(--line);border-radius:9px;background:#2a3140;overflow:hidden;flex:1}
+  .idbox .at{color:#fff;font-weight:bold;font-size:15px;padding-left:12px}
+  .idbox input{border:none;background:transparent;padding-left:4px;flex:1;min-width:0}
+  .idbox input:focus{outline:none}
   .btn{padding:12px 16px;font-size:15px;font-weight:700;border:none;border-radius:9px;cursor:pointer;background:linear-gradient(90deg,#2563eb,#3b82f6);color:#fff;flex:none}
   .stname{font-size:16px;font-weight:800;display:flex;justify-content:space-between;align-items:center}
   .dot{font-size:12px;color:var(--muted)}
@@ -200,7 +204,7 @@ const MASTER_HTML = `
   <h1>⚡ Kmotto びりびり 運営</h1>
   <div class="card">
     <p class="sub">配信者を追加</p>
-    <div class="row"><input id="newname" type="text" placeholder="配信者の名前"><button class="btn" onclick="addRoom()">追加</button></div>
+    <div class="row"><div class="idbox"><span class="at">@</span><input id="newname" type="text" placeholder="配信者のTikTok ID"></div><button class="btn" onclick="addRoom()">追加</button></div>
     <div class="sub" style="margin:10px 0 0">追加すると管理用URLが発行されます。本人にだけ渡してください。リスナーに配るURLは、本人が自分の管理画面から取得します。</div>
   </div>
   <div id="rooms"></div>
@@ -209,7 +213,7 @@ const MASTER_HTML = `
   var KEY='kiko-e127e902';
   async function call(fn,args){ const r=await fetch('/api',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({fn,args})}); return await r.json(); }
   window.onload=async function(){ paint(await call('mData',[KEY])); };
-  async function addRoom(){ var v=document.getElementById('newname').value; if(!v.trim())return; var r=await call('mAdd',[KEY,v]); if(r&&r.ok){document.getElementById('newname').value='';paint(r);} }
+  async function addRoom(){ var v=document.getElementById('newname').value.trim().replace(/^@/,''); if(!v)return; var r=await call('mAdd',[KEY,v]); if(r&&r.ok){document.getElementById('newname').value='';paint(r);} }
   function copy(v,el){ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(v).then(function(){flash(el);});}else{flash(el);} }
   function flash(el){ el.textContent='コピーしました'; setTimeout(function(){el.textContent='';},1500); }
   function paint(r){
@@ -219,7 +223,7 @@ const MASTER_HTML = `
     r.rooms.forEach(function(room){
       var c=document.createElement('div'); c.className='card';
       var head=document.createElement('div'); head.className='stname';
-      var nm=document.createElement('span'); nm.textContent=room.name;
+      var nm=document.createElement('span'); nm.textContent='@'+String(room.name).replace(/^@/,'');
       var right=document.createElement('span'); right.className='dot'; right.textContent=(room.state==='ON'?'受付中':'停止中')+(room.hasToken?'':'・鍵未設定');
       head.appendChild(nm); head.appendChild(right);
       var row=document.createElement('div'); row.className='u';
@@ -230,7 +234,7 @@ const MASTER_HTML = `
       cp.onclick=function(){ inp.select(); copy(room.adminUrl, msg); };
       row.appendChild(lb); row.appendChild(inp); row.appendChild(cp);
       var del=document.createElement('button'); del.className='del'; del.textContent='削除';
-      del.onclick=async function(){ if(confirm(room.name+' を削除しますか？')) paint(await call('mRemove',[KEY,room.sid])); };
+      del.onclick=async function(){ if(confirm('@'+String(room.name).replace(/^@/,'')+' を削除しますか？')) paint(await call('mRemove',[KEY,room.sid])); };
       c.appendChild(head); c.appendChild(row); c.appendChild(msg); c.appendChild(del);
       box.appendChild(c);
     });
