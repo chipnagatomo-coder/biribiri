@@ -1,5 +1,5 @@
 // びりびりボタン（Pavlok発火）— Deno Deploy 版（Googleログイン不要）
-// 運営: /?admin=（あなたの合言葉）  配信者: /?s=部屋ID&k=秘密キー  リスナー: /?s=部屋ID
+// 運営: /?admin=（合言葉）  配信者(管理): /manage?s=部屋ID&k=秘密キー  リスナー: /?s=部屋ID
 const kv = await Deno.openKv();
 const ADMIN_KEY = "kiko-e127e902";
 
@@ -60,7 +60,7 @@ async function fire(sid, rawId) {
 async function mData(key, origin) {
   if (!ck(key)) return { ok: false };
   const rooms = await getRooms(), out = [];
-  for (const r of rooms) out.push({ sid: r.sid, name: r.name, adminUrl: `${origin}/?s=${r.sid}&k=${r.akey}`, state: await getState(r.sid), hasToken: !!(await getToken(r.sid)) });
+  for (const r of rooms) out.push({ sid: r.sid, name: r.name, adminUrl: `${origin}/manage?s=${r.sid}&k=${r.akey}`, state: await getState(r.sid), hasToken: !!(await getToken(r.sid)) });
   return { ok: true, rooms: out };
 }
 async function mAdd(key, name, origin) { if (!ck(key)) return { ok: false }; const nm = String(name || "").trim().replace(/^@/, ""); if (nm) { const rooms = await getRooms(); rooms.push({ sid: rid(8), name: nm, akey: rid(10) }); await setRooms(rooms); } return await mData(key, origin); }
@@ -69,7 +69,7 @@ async function mRemove(key, sid, origin) { if (!ck(key)) return { ok: false }; a
 const sAuth = async (sid, k) => sid && k && k === (await akeyOf(sid));
 async function sData(sid, k, origin) {
   if (!(await sAuth(sid, k))) return { ok: false };
-  return { ok: true, listenerUrl: `${origin}/?s=${sid}`, adminUrl: `${origin}/?s=${sid}&k=${k}`, state: await getState(sid), roster: await getRoster(sid), counts: (await getLog(sid)).counts, strength: await getStrength(sid), hasToken: !!(await getToken(sid)) };
+  return { ok: true, listenerUrl: `${origin}/?s=${sid}`, adminUrl: `${origin}/manage?s=${sid}&k=${k}`, state: await getState(sid), roster: await getRoster(sid), counts: (await getLog(sid)).counts, strength: await getStrength(sid), hasToken: !!(await getToken(sid)) };
 }
 async function sSetState(sid, k, on) { if (!(await sAuth(sid, k))) return { ok: false }; await kv.set(["room", sid, "state"], on ? "ON" : "OFF"); return { ok: true, state: await getState(sid) }; }
 async function sSetStrength(sid, k, v) { if (!(await sAuth(sid, k))) return { ok: false }; let n = parseInt(v, 10); if (!n || n < 1) n = 1; if (n > 100) n = 100; await kv.set(["room", sid, "strength"], n); return { ok: true, strength: n }; }
@@ -128,9 +128,10 @@ Deno.serve(async (req) => {
   const admin = url.searchParams.get("admin") || "";
   const sid = url.searchParams.get("s") || "";
   const k = url.searchParams.get("k") || "";
+  const isManage = url.pathname === "/manage";
   let html;
   if (admin === ADMIN_KEY && !sid) html = MASTER_HTML;
-  else if (sid && k && k === (await akeyOf(sid))) html = STREAMER_HTML.replaceAll("__SID__", sid).replaceAll("__K__", k);
+  else if (isManage && sid && k && k === (await akeyOf(sid))) html = STREAMER_HTML.replaceAll("__SID__", sid).replaceAll("__K__", k);
   else html = USER_HTML.replaceAll("__SID__", sid);
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
 });
