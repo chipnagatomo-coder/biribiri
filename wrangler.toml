@@ -1,0 +1,7 @@
+name = "biribiri"
+main = "main.js"
+compatibility_date = "2024-11-01"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "5623160315ab4e4885246e5d5d8e2ace"
