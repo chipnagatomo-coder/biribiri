@@ -1,6 +1,10 @@
-// びりびりボタン（Pavlok発火）— Deno Deploy 版（Googleログイン不要）
+// びりびりボタン（Pavlok発火）
 // 運営: /?admin=（合言葉）  配信者(管理): /manage?s=部屋ID&k=秘密キー  リスナー: /?s=部屋ID
-const kv = await Deno.openKv();
+let ENV = null;
+const kvGet = (k) => ENV.KV.get(k, "json");
+const kvPut = (k, v) => ENV.KV.put(k, JSON.stringify(v));
+const kvDel = (k) => ENV.KV.delete(k);
+
 const ADMIN_KEY = "kiko-e127e902";
 
 const today = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -8,24 +12,24 @@ const norm = (s) => String(s || "").trim().replace(/^@/, "").toLowerCase();
 const rid = (n) => crypto.randomUUID().replace(/-/g, "").slice(0, n);
 const ck = (key) => key === ADMIN_KEY;
 
-const getRooms = async () => (await kv.get(["rooms"])).value || [];
-const setRooms = async (v) => { await kv.set(["rooms"], v); };
+const getRooms = async () => (await kvGet("rooms")) || [];
+const setRooms = async (v) => { await kvPut("rooms", v); };
 const akeyOf = async (sid) => { const r = (await getRooms()).find((x) => x.sid === sid); return r ? r.akey : ""; };
-const getRoster = async (sid) => (await kv.get(["room", sid, "roster"])).value || [];
-const setRoster = async (sid, v) => { await kv.set(["room", sid, "roster"], v); };
-const getState = async (sid) => (await kv.get(["room", sid, "state"])).value || "OFF";
-const getStrength = async (sid) => (await kv.get(["room", sid, "strength"])).value || 50;
-const getToken = async (sid) => (await kv.get(["room", sid, "token"])).value || "";
-const getLog = async (sid) => { const o = (await kv.get(["room", sid, "log"])).value || { date: "", counts: {} }; return o.date === today() ? o : { date: today(), counts: {} }; };
-const setLog = async (sid, v) => { await kv.set(["room", sid, "log"], v); };
-const getHistory = async (sid) => (await kv.get(["room", sid, "history"])).value || [];
+const getRoster = async (sid) => (await kvGet(`room:${sid}:roster`)) || [];
+const setRoster = async (sid, v) => { await kvPut(`room:${sid}:roster`, v); };
+const getState = async (sid) => (await kvGet(`room:${sid}:state`)) || "OFF";
+const getStrength = async (sid) => (await kvGet(`room:${sid}:strength`)) || 50;
+const getToken = async (sid) => (await kvGet(`room:${sid}:token`)) || "";
+const getLog = async (sid) => { const o = (await kvGet(`room:${sid}:log`)) || { date: "", counts: {} }; return o.date === today() ? o : { date: today(), counts: {} }; };
+const setLog = async (sid, v) => { await kvPut(`room:${sid}:log`, v); };
+const getHistory = async (sid) => (await kvGet(`room:${sid}:history`)) || [];
 async function addHistory(sid, id) {
   const now = Date.now();
   const cutoff = now - 31 * 24 * 60 * 60 * 1000;
   let h = (await getHistory(sid)).filter((e) => e && e.ts >= cutoff);
   h.push({ id, ts: now });
   if (h.length > 3000) h = h.slice(h.length - 3000);
-  await kv.set(["room", sid, "history"], h);
+  await kvPut(`room:${sid}:history`, h);
 }
 
 async function zap(sid) {
@@ -64,16 +68,16 @@ async function mData(key, origin) {
   return { ok: true, rooms: out };
 }
 async function mAdd(key, name, origin) { if (!ck(key)) return { ok: false }; const nm = String(name || "").trim().replace(/^@/, ""); if (nm) { const rooms = await getRooms(); rooms.push({ sid: rid(8), name: nm, akey: rid(10) }); await setRooms(rooms); } return await mData(key, origin); }
-async function mRemove(key, sid, origin) { if (!ck(key)) return { ok: false }; await setRooms((await getRooms()).filter((r) => r.sid !== sid)); for (const s of ["roster", "state", "token", "strength", "log"]) await kv.delete(["room", sid, s]); return await mData(key, origin); }
+async function mRemove(key, sid, origin) { if (!ck(key)) return { ok: false }; await setRooms((await getRooms()).filter((r) => r.sid !== sid)); for (const s of ["roster", "state", "token", "strength", "log", "history"]) await kvDel(`room:${sid}:${s}`); return await mData(key, origin); }
 
 const sAuth = async (sid, k) => sid && k && k === (await akeyOf(sid));
 async function sData(sid, k, origin) {
   if (!(await sAuth(sid, k))) return { ok: false };
-  return { ok: true, listenerUrl: `${origin}/?s=${sid}`, adminUrl: `${origin}/manage?s=${sid}&k=${k}`, state: await getState(sid), roster: await getRoster(sid), counts: (await getLog(sid)).counts, strength: await getStrength(sid), hasToken: !!(await getToken(sid)) };
+  return { ok: true, listenerUrl: `${origin}/?s=${sid}`, adminUrl: `${origin}/manage?s=${sid}&k=${k}`, subscribeUrl: `${origin}/subscribe?s=${sid}`, state: await getState(sid), roster: await getRoster(sid), counts: (await getLog(sid)).counts, strength: await getStrength(sid), hasToken: !!(await getToken(sid)) };
 }
-async function sSetState(sid, k, on) { if (!(await sAuth(sid, k))) return { ok: false }; await kv.set(["room", sid, "state"], on ? "ON" : "OFF"); return { ok: true, state: await getState(sid) }; }
-async function sSetStrength(sid, k, v) { if (!(await sAuth(sid, k))) return { ok: false }; let n = parseInt(v, 10); if (!n || n < 1) n = 1; if (n > 100) n = 100; await kv.set(["room", sid, "strength"], n); return { ok: true, strength: n }; }
-async function sSetToken(sid, k, t) { if (!(await sAuth(sid, k))) return { ok: false }; const tok = String(t || "").trim().replace(/^Bearer\s+/i, ""); if (tok) await kv.set(["room", sid, "token"], tok); return { ok: true, hasToken: !!(await getToken(sid)) }; }
+async function sSetState(sid, k, on) { if (!(await sAuth(sid, k))) return { ok: false }; await kvPut(`room:${sid}:state`, on ? "ON" : "OFF"); return { ok: true, state: await getState(sid) }; }
+async function sSetStrength(sid, k, v) { if (!(await sAuth(sid, k))) return { ok: false }; let n = parseInt(v, 10); if (!n || n < 1) n = 1; if (n > 100) n = 100; await kvPut(`room:${sid}:strength`, n); return { ok: true, strength: n }; }
+async function sSetToken(sid, k, t) { if (!(await sAuth(sid, k))) return { ok: false }; const tok = String(t || "").trim().replace(/^Bearer\s+/i, ""); if (tok) await kvPut(`room:${sid}:token`, tok); return { ok: true, hasToken: !!(await getToken(sid)) }; }
 async function sAdd(sid, k, rawId, limit) { if (!(await sAuth(sid, k))) return { ok: false, roster: await getRoster(sid) }; const id = norm(rawId); if (!id) return { ok: false, roster: await getRoster(sid) }; let lim = parseInt(limit, 10); if (!lim || lim < 1) lim = 1; const r = await getRoster(sid); const hit = r.find((x) => norm(x.id) === id); if (hit) hit.limit = lim; else r.push({ id, limit: lim }); await setRoster(sid, r); return { ok: true, roster: r }; }
 async function sRemove(sid, k, rawId) { if (!(await sAuth(sid, k))) return { ok: false, roster: await getRoster(sid) }; const id = norm(rawId); const r = (await getRoster(sid)).filter((x) => norm(x.id) !== id); await setRoster(sid, r); return { ok: true, roster: r }; }
 async function sClearToday(sid, k) { if (!(await sAuth(sid, k))) return { ok: false }; await setLog(sid, { date: today(), counts: {} }); return { ok: true }; }
@@ -93,9 +97,81 @@ async function sRename(sid, k, oldRaw, newRaw) {
     if (log.counts[oldId] != null) { log.counts[newId] = log.counts[oldId]; delete log.counts[oldId]; await setLog(sid, log); }
     const h = await getHistory(sid); let changed = false;
     for (const e of h) { if (e && norm(e.id) === oldId) { e.id = newId; changed = true; } }
-    if (changed) await kv.set(["room", sid, "history"], h);
+    if (changed) await kvPut(`room:${sid}:history`, h);
   }
   return { ok: true, roster: r };
+}
+
+// ===== Stripe（サブスク→名簿 自動連携）=====
+async function rosterAddDirect(sid, rawId, limit) {
+  const id = norm(rawId);
+  if (!sid || !id) return false;
+  const r = await getRoster(sid);
+  if (!r.find((x) => norm(x.id) === id)) { r.push({ id, limit: limit || 1 }); await setRoster(sid, r); }
+  return true;
+}
+async function rosterRemoveDirect(sid, rawId) {
+  const id = norm(rawId);
+  if (!sid || !id) return;
+  await setRoster(sid, (await getRoster(sid)).filter((x) => norm(x.id) !== id));
+}
+const toHex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function stripeVerify(payload, sigHeader, secret) {
+  if (!sigHeader) return false;
+  const parts = {};
+  for (const kvp of sigHeader.split(",")) { const [a, b] = kvp.split("="); parts[a] = b; }
+  const t = parts.t, v1 = parts.v1;
+  if (!t || !v1) return false;
+  if (Math.abs(Date.now() / 1000 - Number(t)) > 300) return false;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = toHex(await crypto.subtle.sign("HMAC", key, enc.encode(t + "." + payload)));
+  if (sig.length !== v1.length) return false;
+  let diff = 0;
+  for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ v1.charCodeAt(i);
+  return diff === 0;
+}
+async function stripeCreateCheckout(sid, origin) {
+  const key = ENV.STRIPE_SECRET_KEY, price = ENV.STRIPE_PRICE_ID;
+  if (!key || !price || !sid) return null;
+  const p = new URLSearchParams();
+  p.set("mode", "subscription");
+  p.set("line_items[0][price]", price);
+  p.set("line_items[0][quantity]", "1");
+  p.set("success_url", `${origin}/?s=${sid}&sub=ok`);
+  p.set("cancel_url", `${origin}/?s=${sid}`);
+  p.set("metadata[sid]", sid);
+  p.set("subscription_data[metadata][sid]", sid);
+  p.set("custom_fields[0][key]", "tiktok");
+  p.set("custom_fields[0][label][type]", "custom");
+  p.set("custom_fields[0][label][custom]", "TikTok ID（@のあとだけ）");
+  p.set("custom_fields[0][type]", "text");
+  try {
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + key, "Content-Type": "application/x-www-form-urlencoded" },
+      body: p.toString(),
+    });
+    const d = await res.json();
+    return d.url || null;
+  } catch (_) { return null; }
+}
+async function stripeHandle(evt) {
+  const type = evt && evt.type, obj = (evt && evt.data && evt.data.object) || {};
+  if (type === "checkout.session.completed") {
+    const sid = obj.metadata && obj.metadata.sid;
+    const subId = obj.subscription;
+    let tiktok = "";
+    for (const f of (obj.custom_fields || [])) { if (f.key === "tiktok" && f.text) tiktok = f.text.value || ""; }
+    if (sid && tiktok) {
+      await rosterAddDirect(sid, tiktok, 1);
+      if (subId) await kvPut(`sub:${subId}`, { sid, id: norm(tiktok) });
+    }
+  } else if (type === "customer.subscription.deleted") {
+    const subId = obj.id;
+    const map = subId ? (await kvGet(`sub:${subId}`)) : null;
+    if (map) { await rosterRemoveDirect(map.sid, map.id); await kvDel(`sub:${subId}`); }
+  }
 }
 
 async function api(fn, args, origin) {
@@ -118,23 +194,41 @@ async function api(fn, args, origin) {
   }
 }
 
-Deno.serve(async (req) => {
-  const url = new URL(req.url);
-  const origin = url.origin;
-  if (req.method === "POST" && url.pathname === "/api") {
-    try { const { fn, args } = await req.json(); return Response.json(await api(fn, args, origin)); }
-    catch (_) { return Response.json({ ok: false }); }
+export default {
+  async fetch(request, env) {
+    ENV = env;
+    const url = new URL(request.url);
+    const origin = url.origin;
+    if (request.method === "POST" && url.pathname === "/api") {
+      try { const { fn, args } = await request.json(); return Response.json(await api(fn, args, origin)); }
+      catch (_) { return Response.json({ ok: false }); }
+    }
+    if (request.method === "POST" && url.pathname === "/stripe") {
+      const secret = ENV.STRIPE_WEBHOOK_SECRET;
+      const payload = await request.text();
+      const sig = request.headers.get("stripe-signature") || "";
+      if (!secret || !(await stripeVerify(payload, sig, secret))) return new Response("bad signature", { status: 400 });
+      let evt; try { evt = JSON.parse(payload); } catch (_) { return new Response("bad", { status: 400 }); }
+      try { await stripeHandle(evt); } catch (_) { /* ignore */ }
+      return new Response("ok");
+    }
+    if (url.pathname === "/subscribe") {
+      const s = url.searchParams.get("s") || "";
+      const cu = await stripeCreateCheckout(s, origin);
+      if (cu) return new Response(null, { status: 302, headers: { Location: cu } });
+      return new Response("<meta charset=utf-8>申込みページを準備できませんでした。運営者はStripeの設定（環境変数）を確認してください。", { status: 500, headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    const admin = url.searchParams.get("admin") || "";
+    const sid = url.searchParams.get("s") || "";
+    const k = url.searchParams.get("k") || "";
+    const isManage = url.pathname === "/manage";
+    let html;
+    if (admin === ADMIN_KEY && !sid) html = MASTER_HTML;
+    else if (isManage && sid && k && k === (await akeyOf(sid))) html = STREAMER_HTML.replaceAll("__SID__", sid).replaceAll("__K__", k);
+    else html = USER_HTML.replaceAll("__SID__", sid);
+    return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
   }
-  const admin = url.searchParams.get("admin") || "";
-  const sid = url.searchParams.get("s") || "";
-  const k = url.searchParams.get("k") || "";
-  const isManage = url.pathname === "/manage";
-  let html;
-  if (admin === ADMIN_KEY && !sid) html = MASTER_HTML;
-  else if (isManage && sid && k && k === (await akeyOf(sid))) html = STREAMER_HTML.replaceAll("__SID__", sid).replaceAll("__K__", k);
-  else html = USER_HTML.replaceAll("__SID__", sid);
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
-});
+};
 
 // ===== リスナー画面 =====
 const USER_HTML = `
@@ -163,7 +257,7 @@ const USER_HTML = `
 <script>
   var SID='__SID__';
   async function call(fn,args){ try{ const r=await fetch('/api',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({fn,args})}); return await r.json(); }catch(e){ return {ok:false,msg:'通信エラー。もう一度お試しください'}; } }
-  window.onload=function(){ var el=document.getElementById('tid'); try{ var s=localStorage.getItem('biribiri_id'); if(s){ el.value=String(s).replace(/^@/,''); } }catch(e){} };
+  window.onload=function(){ var el=document.getElementById('tid'); try{ var s=localStorage.getItem('biribiri_id'); if(s){ el.value=String(s).replace(/^@/,''); } }catch(e){} try{ if(location.search.indexOf('sub=ok')>=0){ var m=document.getElementById('msg'); m.textContent='登録ありがとう！反映まで数十秒かかることがあります'; m.className='msg ok'; } }catch(e){} };
   async function go(){
     var id=document.getElementById('tid').value.trim().replace(/^@/,''),btn=document.getElementById('btn'),msg=document.getElementById('msg');
     if(!SID){msg.textContent='URLが正しくありません';msg.className='msg ng';return;}
@@ -291,6 +385,12 @@ const STREAMER_HTML = `
     <div id="copyMsg" class="sub" style="margin:8px 0 0;text-align:center"></div>
   </div>
   <div class="card">
+    <p class="sub">💳 有料サブスク申込みURL（払った人が自動で名簿に入り／解約で自動で外れます）</p>
+    <input id="subUrl" type="text" readonly value="" style="width:100%">
+    <button class="add" style="width:100%;margin-top:8px" onclick="copySub()">申込みURLをコピー</button>
+    <div id="subMsg" class="sub" style="margin:8px 0 0;text-align:center"></div>
+  </div>
+  <div class="card">
     <p class="sub">スパファン名簿（<span id="rc">0</span>人）／人ごとに1日の回数を設定</p>
     <div class="row"><div class="idbox idin"><span class="at">@</span><input id="newid" type="text" placeholder="TikTokのID"></div><input id="newlim" class="limin" type="number" min="1" value="1"><button class="add" onclick="addM()">追加</button></div>
     <ul id="list" class="list"></ul>
@@ -353,6 +453,7 @@ const STREAMER_HTML = `
     if(!r||!r.ok)return;
     STATE=r.state; ROSTER=r.roster||[]; COUNTS=r.counts||{}; STRENGTH=r.strength||50; HASTOKEN=!!r.hasToken;
     document.getElementById('shareUrl').value=r.listenerUrl||'';
+    document.getElementById('subUrl').value=r.subscribeUrl||'';
     ADMURL=r.adminUrl||'';
     drawConfig(); drawQR(); drawStatus(); drawRoster(); drawUsed();
   }
@@ -406,6 +507,11 @@ const STREAMER_HTML = `
   function copyUrl(){
     var inp=document.getElementById('shareUrl'); inp.select(); inp.setSelectionRange(0,99999);
     var done=function(m){ var e=document.getElementById('copyMsg'); e.style.color='#60a5fa'; e.textContent=m; setTimeout(function(){e.textContent='';},2000); };
+    try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(inp.value).then(function(){done('コピーしました');},function(){done('コピーしました');});}else{done('長押しでコピー');} }catch(e){ done('長押しでコピー'); }
+  }
+  function copySub(){
+    var inp=document.getElementById('subUrl'); inp.select(); inp.setSelectionRange(0,99999);
+    var done=function(m){ var e=document.getElementById('subMsg'); e.style.color='#60a5fa'; e.textContent=m; setTimeout(function(){e.textContent='';},2000); };
     try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(inp.value).then(function(){done('コピーしました');},function(){done('コピーしました');});}else{done('長押しでコピー');} }catch(e){ done('長押しでコピー'); }
   }
   function copyAdminUrl(){
