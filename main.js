@@ -1,4 +1,4 @@
-// びりびりボタン（Pavlok発火）
+// びりびりボタン
 // 運営: /?admin=（合言葉）  配信者(管理): /manage?s=部屋ID&k=秘密キー  リスナー: /?s=部屋ID
 let ENV = null;
 const kvGet = (k) => ENV.KV.get(k, "json");
@@ -385,7 +385,7 @@ const STREAMER_HTML = `
     <div id="copyMsg" class="sub" style="margin:8px 0 0;text-align:center"></div>
   </div>
   <div class="card">
-    <p class="sub">💳 有料サブスク申込みURL（払った人が自動で名簿に入り／解約で自動で外れます）</p>
+    <p class="sub">💳 有料サブスク申込みURL</p>
     <input id="subUrl" type="text" readonly value="" style="width:100%">
     <button class="add" style="width:100%;margin-top:8px" onclick="copySub()">申込みURLをコピー</button>
     <div id="subMsg" class="sub" style="margin:8px 0 0;text-align:center"></div>
