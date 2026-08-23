@@ -385,12 +385,6 @@ const STREAMER_HTML = `
     <div id="copyMsg" class="sub" style="margin:8px 0 0;text-align:center"></div>
   </div>
   <div class="card">
-    <p class="sub">💳 有料サブスク申込みURL</p>
-    <input id="subUrl" type="text" readonly value="" style="width:100%">
-    <button class="add" style="width:100%;margin-top:8px" onclick="copySub()">申込みURLをコピー</button>
-    <div id="subMsg" class="sub" style="margin:8px 0 0;text-align:center"></div>
-  </div>
-  <div class="card">
     <p class="sub">スパファン名簿（<span id="rc">0</span>人）／人ごとに1日の回数を設定</p>
     <div class="row"><div class="idbox idin"><span class="at">@</span><input id="newid" type="text" placeholder="TikTokのID"></div><input id="newlim" class="limin" type="number" min="1" value="1"><button class="add" onclick="addM()">追加</button></div>
     <ul id="list" class="list"></ul>
@@ -453,7 +447,6 @@ const STREAMER_HTML = `
     if(!r||!r.ok)return;
     STATE=r.state; ROSTER=r.roster||[]; COUNTS=r.counts||{}; STRENGTH=r.strength||50; HASTOKEN=!!r.hasToken;
     document.getElementById('shareUrl').value=r.listenerUrl||'';
-    document.getElementById('subUrl').value=r.subscribeUrl||'';
     ADMURL=r.adminUrl||'';
     drawConfig(); drawQR(); drawStatus(); drawRoster(); drawUsed();
   }
@@ -507,11 +500,6 @@ const STREAMER_HTML = `
   function copyUrl(){
     var inp=document.getElementById('shareUrl'); inp.select(); inp.setSelectionRange(0,99999);
     var done=function(m){ var e=document.getElementById('copyMsg'); e.style.color='#60a5fa'; e.textContent=m; setTimeout(function(){e.textContent='';},2000); };
-    try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(inp.value).then(function(){done('コピーしました');},function(){done('コピーしました');});}else{done('長押しでコピー');} }catch(e){ done('長押しでコピー'); }
-  }
-  function copySub(){
-    var inp=document.getElementById('subUrl'); inp.select(); inp.setSelectionRange(0,99999);
-    var done=function(m){ var e=document.getElementById('subMsg'); e.style.color='#60a5fa'; e.textContent=m; setTimeout(function(){e.textContent='';},2000); };
     try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(inp.value).then(function(){done('コピーしました');},function(){done('コピーしました');});}else{done('長押しでコピー');} }catch(e){ done('長押しでコピー'); }
   }
   function copyAdminUrl(){
